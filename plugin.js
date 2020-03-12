@@ -70,42 +70,47 @@ function plugin(fastify, options, pluginRegistrationDone) {
       }
     }
 
-    uidgen(18, storeSession.bind(this));
-    function storeSession(err, sessionId) {
-      if (err) {
-        req.log.trace("could not store session with invalid id");
-        done(err);
-      } else if (!sessionId) {
-        req.log.trace("could not store session with missing id");
-        done(Error("missing session id"));
-      } else {
-        done(null, { id: sessionId, enc: sign(sessionId, opts.secretKey) });
-      }
-    }
+    uidgen(
+      18,
+      function(err, sessionId) {
+        if (err) {
+          req.log.trace("could not store session with invalid id");
+          done(err);
+        } else if (!sessionId) {
+          req.log.trace("could not store session with missing id");
+          done(Error("missing session id"));
+        } else {
+          done(null, { id: sessionId, enc: sign(sessionId, opts.secretKey) });
+        }
+      }.bind(this)
+    );
   }
 
   fastify.decorateRequest("session", getSession());
   fastify.addHook("onRequest", function(req, reply, hookFinished) {
-    getSessionID(req, function(err, session) {
-      if (err || !session) {
-        req.session = getSession();
-      } else {
-        this.cache.get(session.id, (err, cached) => {
-          if (err) {
-            req.log.trace("could not retrieve session data");
-            hookFinished(err);
-          } else if (!cached) {
-            req.log.trace("session data missing (new/expired)");
-            req.session = getSession(session);
-            hookFinished();
-          } else {
-            req.session = getSession(session, cached.item);
-            req.log.trace("session restored: %j", req.session);
-            hookFinished();
-          }
-        });
-      }
-    });
+    getSessionID(
+      req,
+      function(err, session) {
+        if (err || !session) {
+          req.session = getSession();
+        } else {
+          this.cache.get(session.id, (err, cached) => {
+            if (err) {
+              req.log.trace("could not retrieve session data");
+              hookFinished(err);
+            } else if (!cached) {
+              req.log.trace("session data missing (new/expired)");
+              req.session = getSession(session);
+              hookFinished();
+            } else {
+              req.session = getSession(session, cached.item);
+              req.log.trace("session restored: %j", req.session);
+              hookFinished();
+            }
+          });
+        }
+      }.bind(this)
+    );
   });
 
   fastify.addHook("onSend", function(req, reply, payload, hookFinished) {

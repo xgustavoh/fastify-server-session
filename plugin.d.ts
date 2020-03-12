@@ -19,8 +19,8 @@ declare module "fastify" {
   }
 
   interface Session extends Record<string, any> {
-    id: string;
-    token: string;
+    sessionID: string;
+    sessionToken: string;
   }
 }
 
