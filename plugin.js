@@ -105,7 +105,6 @@ function plugin(fastify, options, pluginRegistrationDone) {
       req
     )}-${getUserAgent(req)}`;
     this.cache.get(keySession, (err, cached) => {
-      console.log("Get:", keySession, cached);
       if (err || !cached) {
         uidgen(
           18,
@@ -117,7 +116,6 @@ function plugin(fastify, options, pluginRegistrationDone) {
               req.log.trace("could not store session with missing id");
               done(Error("missing session id"));
             } else {
-              console.log("New:", keySession, sessionId);
               this.cache.set(
                 keySession,
                 sessionId,
