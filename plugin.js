@@ -11,11 +11,11 @@ const defaultOptions = {
     expires: MAX_AGE,
     httpOnly: true,
     path: undefined,
-    sameSite: true
+    sameSite: true,
   },
   secretKey: undefined,
   sessionCookieName: "sessionid",
-  sessionMaxAge: MAX_AGE
+  sessionMaxAge: MAX_AGE,
 };
 const getSession = require("./lib/session");
 const { symbols: syms } = getSession;
@@ -39,6 +39,37 @@ function plugin(fastify, options, pluginRegistrationDone) {
     );
   }
 
+  function getIP(request) {
+    let forwarded = request.ip;
+    if (request.headers["cf-connecting-ip"]) {
+      forwarded = request.headers["cf-connecting-ip"];
+    } else if (request.headers["x-forwarded-for"]) {
+      forwarded = request.headers["x-forwarded-for"];
+    } else if (Array.isArray(request.ips) && request.ips.length > 0) {
+      [forwarded] = request.ips;
+    }
+
+    if (forwarded.indexOf(",") >= 0) {
+      forwarded = forwarded.substr(0, forwarded.indexOf(","));
+    }
+
+    return forwarded;
+  }
+
+  function getUserAgent(request) {
+    return encodeURIComponent(request.headers["user-agent"]);
+  }
+
+  function getStation(request) {
+    const info = (request.req.url || "").split("/");
+    for (let i = 0; i < info.length; i += 1) {
+      if (info[i] !== "") {
+        return info[i].replace(".m3u8", "").trim();
+      }
+    }
+    return "unk";
+  }
+
   function getSessionID(req, done) {
     if (req.cookies[opts.sessionCookieName]) {
       const sessionId = unsign(
@@ -50,7 +81,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
       if (sessionId) {
         return done(null, {
           id: sessionId,
-          enc: req.cookies[opts.sessionCookieName]
+          enc: req.cookies[opts.sessionCookieName],
         });
       }
     }
@@ -65,32 +96,56 @@ function plugin(fastify, options, pluginRegistrationDone) {
       if (sessionId) {
         return done(null, {
           id: sessionId,
-          enc: req.query[opts.sessionCookieName]
+          enc: req.query[opts.sessionCookieName],
         });
       }
     }
 
-    uidgen(
-      18,
-      function(err, sessionId) {
-        if (err) {
-          req.log.trace("could not store session with invalid id");
-          done(err);
-        } else if (!sessionId) {
-          req.log.trace("could not store session with missing id");
-          done(Error("missing session id"));
-        } else {
-          done(null, { id: sessionId, enc: sign(sessionId, opts.secretKey) });
-        }
-      }.bind(this)
-    );
+    const keySession = `session-ht:${getStation(req)}:${getIP(
+      req
+    )}-${getUserAgent(req)}`;
+    this.cache.get(keySession, (err, cached) => {
+      console.log("Get:", keySession, cached);
+      if (err || !cached) {
+        uidgen(
+          18,
+          function (err, sessionId) {
+            if (err) {
+              req.log.trace("could not store session with invalid id");
+              done(err);
+            } else if (!sessionId) {
+              req.log.trace("could not store session with missing id");
+              done(Error("missing session id"));
+            } else {
+              console.log("New:", keySession, sessionId);
+              this.cache.set(
+                keySession,
+                sessionId,
+                opts.sessionMaxAge,
+                (err) => {
+                  done(null, {
+                    id: sessionId,
+                    enc: sign(sessionId, opts.secretKey),
+                  });
+                }
+              );
+            }
+          }.bind(this)
+        );
+      } else {
+        done(null, {
+          id: cached.item,
+          enc: sign(cached.item, opts.secretKey),
+        });
+      }
+    });
   }
 
   fastify.decorateRequest("session", getSession());
-  fastify.addHook("onRequest", function(req, reply, hookFinished) {
-    getSessionID(
+  fastify.addHook("onRequest", function (req, reply, hookFinished) {
+    getSessionID.bind(this)(
       req,
-      function(err, session) {
+      function (err, session) {
         if (err || !session) {
           req.session = getSession();
         } else {
@@ -113,7 +168,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
     );
   });
 
-  fastify.addHook("onSend", function(req, reply, payload, hookFinished) {
+  fastify.addHook("onSend", function (req, reply, payload, hookFinished) {
     if (req.session[syms.kSessionModified] === false) {
       hookFinished();
     } else {
@@ -121,7 +176,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
         req.session[syms.kSessionID],
         req.session,
         opts.sessionMaxAge,
-        err => {
+        (err) => {
           if (err) {
             req.log.trace("error saving session: %s", err.message);
             hookFinished(err);
@@ -130,7 +185,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
             const cookieOpts = merge({}, opts.cookie, {
               expires: !cookieExiresMs
                 ? undefined
-                : new Date(Date.now() + cookieExiresMs)
+                : new Date(Date.now() + cookieExiresMs),
             });
             reply.setCookie(
               opts.sessionCookieName,
@@ -151,6 +206,6 @@ module.exports = fp(plugin, {
   fastify: "^2.0.0",
   dependencies: ["fastify-cookie"],
   decorators: {
-    fastify: ["cache"]
-  }
+    fastify: ["cache"],
+  },
 });
