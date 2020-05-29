@@ -1,14 +1,9 @@
 'use strict'
 
 const fp = require('fastify-plugin')
-const {
-  sign,
-  unsign
-} = require('cookie-signature')
+const { sign, unsign } = require('cookie-signature')
 const uidgen = require('uid-safe')
-const {
-  v4: uuidv4
-} = require('uuid')
+const { v4: uuidv4 } = require('uuid')
 const merge = require('merge-options')
 const MAX_AGE = 1800000 // 30 minutes
 const MAX_AGE_USER = 1296000000 // 15 Dias
@@ -26,9 +21,7 @@ const defaultOptions = {
   userMaxAge: MAX_AGE_USER
 }
 const getSession = require('./lib/session')
-const {
-  symbols: syms
-} = getSession
+const { symbols: syms } = getSession
 
 function plugin(fastify, options, pluginRegistrationDone) {
   const _options = Function.prototype.isPrototypeOf(options) ? {} : options
@@ -56,8 +49,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
     } else if (request.headers['x-forwarded-for']) {
       forwarded = request.headers['x-forwarded-for']
     } else if (Array.isArray(request.ips) && request.ips.length > 0) {
-      ;
-      [forwarded] = request.ips
+      ;[forwarded] = request.ips
     }
 
     if (forwarded.indexOf(',') >= 0) {
@@ -84,7 +76,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
   function getUserID(request, done) {
     const userKey = `ht-user:${getIP(request)}:${getUserAgent(request)}`
     this.cache.get(userKey, (err, cached) => {
-      let userID = err || !cached ? cached : uuidv4()
+      let userID = err || !cached ? uuidv4() : cached
       this.cache.set(userKey, userID, opts.userMaxAge, () => {
         done(userID)
       })
@@ -198,8 +190,9 @@ function plugin(fastify, options, pluginRegistrationDone) {
           } else {
             const cookieExiresMs = opts.cookie && opts.cookie.expires
             const cookieOpts = merge({}, opts.cookie, {
-              expires: !cookieExiresMs ?
-                undefined : new Date(Date.now() + cookieExiresMs)
+              expires: !cookieExiresMs
+                ? undefined
+                : new Date(Date.now() + cookieExiresMs)
             })
             reply.setCookie(
               opts.sessionCookieName,
