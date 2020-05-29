@@ -170,15 +170,15 @@ function plugin(fastify, options, pluginRegistrationDone) {
             if (err) {
               req.log.trace('could not retrieve session data');
               req.session = getSession();
-              setUserID(req, () => hookFinished(err));
+              setUserID.bind(this)(req, () => hookFinished(err));
             } else if (!cached) {
               req.log.trace('session data missing (new/expired)');
               req.session = getSession(session);
-              setUserID(req, hookFinished);
+              setUserID.bind(this)(req, hookFinished);
             } else {
               req.session = getSession(session, cached.item);
               req.log.trace('session restored: %j', req.session);
-              setUserID(req, hookFinished);
+              setUserID.bind(this)(req, hookFinished);
             }
           });
         }
