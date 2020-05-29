@@ -157,7 +157,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   fastify.decorateRequest('session', getSession())
   fastify.addHook('onRequest', function (req, reply, hookFinished) {
-    getUserID(req, (userID) => {
+    getUserID.bind(this)(req, (userID) => {
       req.userID = userID
       getSessionID.bind(this)(
         req,
