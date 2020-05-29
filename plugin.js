@@ -86,9 +86,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
     this.cache.get(userKey, (err, cached) => {
       let userID = err || !cached ? cached : uuidv4()
       this.cache.set(userKey, userID, opts.userMaxAge, () => {
-        done({
-          userID
-        })
+        done(userID)
       })
     })
   }
