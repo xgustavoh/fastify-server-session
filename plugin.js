@@ -125,8 +125,8 @@ function plugin(fastify, options, pluginRegistrationDone) {
       }
     }
 
-    const keySession = `ht-session:${getIP(request)}-${getUserAgent(
-      request
+    const keySession = `ht-session:${getIP(req)}-${getUserAgent(
+      req
     )}:${getStation(req)}`;
     this.cache.get(keySession, (err, cached) => {
       if (err || !cached) {
