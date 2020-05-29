@@ -15,6 +15,7 @@ declare module "fastify" {
     Body = any
   > {
     /** Allows to access or modify the session data. */
+    userID: string;
     session: Session;
   }
 

@@ -3,8 +3,10 @@
 const fp = require("fastify-plugin");
 const { sign, unsign } = require("cookie-signature");
 const uidgen = require("uid-safe");
+const { v4: uuidv4 } = require('uuid');
 const merge = require("merge-options");
 const MAX_AGE = 1800000; // 30 minutes
+const MAX_AGE_USER = 1296000000; // 15 Dias
 const defaultOptions = {
   cookie: {
     domain: undefined,
@@ -16,6 +18,7 @@ const defaultOptions = {
   secretKey: undefined,
   sessionCookieName: "sessionid",
   sessionMaxAge: MAX_AGE,
+  userMaxAge: MAX_AGE_USER,
 };
 const getSession = require("./lib/session");
 const { symbols: syms } = getSession;
@@ -70,6 +73,16 @@ function plugin(fastify, options, pluginRegistrationDone) {
     return "unk";
   }
 
+  function getUserID(request, done) {
+    const userKey = `ht-user:${getIP(request)}:${getUserAgent(request)}`;
+    this.cache.get(userKey, (err, cached) => {
+      let userID = (err || !cached) ? cached : uuidv4();
+      this.cache.set(userKey, userID, opts.userMaxAge, (err) => {
+        done({ userID });
+      });
+    });
+  }
+
   function getSessionID(req, done) {
     if (req.cookies[opts.sessionCookieName]) {
       const sessionId = unsign(
@@ -101,9 +114,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
       }
     }
 
-    const keySession = `session-ht:${getStation(req)}:${getIP(
-      req
-    )}-${getUserAgent(req)}`;
+    const keySession = `ht-session:${req.userID}:${getStation(req)}`;
     this.cache.get(keySession, (err, cached) => {
       if (err || !cached) {
         uidgen(
@@ -141,29 +152,33 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   fastify.decorateRequest("session", getSession());
   fastify.addHook("onRequest", function (req, reply, hookFinished) {
-    getSessionID.bind(this)(
-      req,
-      function (err, session) {
-        if (err || !session) {
-          req.session = getSession();
-        } else {
-          this.cache.get(session.id, (err, cached) => {
-            if (err) {
-              req.log.trace("could not retrieve session data");
-              hookFinished(err);
-            } else if (!cached) {
-              req.log.trace("session data missing (new/expired)");
-              req.session = getSession(session);
-              hookFinished();
-            } else {
-              req.session = getSession(session, cached.item);
-              req.log.trace("session restored: %j", req.session);
-              hookFinished();
-            }
-          });
-        }
-      }.bind(this)
-    );
+    getUserID((userID) => {
+      req.userID = userID;
+      getSessionID.bind(this)(
+        req,
+        function (err, session) {
+          if (err || !session) {
+            req.session = getSession();
+          } else {
+            this.cache.get(session.id, (err, cached) => {
+              if (err) {
+                req.log.trace("could not retrieve session data");
+                hookFinished(err);
+              } else if (!cached) {
+                req.log.trace("session data missing (new/expired)");
+                req.session = getSession(session);
+                hookFinished();
+              } else {
+                req.session = getSession(session, cached.item);
+                req.log.trace("session restored: %j", req.session);
+                hookFinished();
+              }
+            });
+          }
+        }.bind(this)
+      );
+    });
+    
   });
 
   fastify.addHook("onSend", function (req, reply, payload, hookFinished) {
