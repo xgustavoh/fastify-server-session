@@ -1,9 +1,14 @@
 'use strict';
 
 const fp = require('fastify-plugin');
-const { sign, unsign } = require('cookie-signature');
+const {
+  sign,
+  unsign
+} = require('cookie-signature');
 const uidgen = require('uid-safe');
-const { v4: uuidv4 } = require('uuid');
+const {
+  v4: uuidv4
+} = require('uuid');
 const merge = require('merge-options');
 const MAX_AGE = 1800000; // 30 minutes
 const MAX_AGE_USER = 1296000000; // 15 Dias
@@ -21,7 +26,9 @@ const defaultOptions = {
   userMaxAge: MAX_AGE_USER,
 };
 const getSession = require('./lib/session');
-const { symbols: syms } = getSession;
+const {
+  symbols: syms
+} = getSession;
 
 function plugin(fastify, options, pluginRegistrationDone) {
   const _options = Function.prototype.isPrototypeOf(options) ? {} : options;
@@ -82,9 +89,9 @@ function plugin(fastify, options, pluginRegistrationDone) {
     const userKey = `ht-user:${getIP(request)}:${getUserAgent(request)}`;
     this.cache.get(userKey, (err, cached) => {
       const userID =
-        err || !cached || typeof cached.item !== 'string'
-          ? uuidv4()
-          : cached.item;
+        err || !cached || typeof cached.item !== 'string' ?
+        uuidv4() :
+        cached.item;
 
       request.userID = userID;
       request.session[syms.kUserID] = userID;
@@ -101,6 +108,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
         opts.secretKey
       );
       req.log.trace('sessionId: %s', sessionId);
+      console.log("[getSessionID]:[0]> sessionID:", sessionId);
 
       if (sessionId) {
         return done(null, {
@@ -116,6 +124,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
         opts.secretKey
       );
       req.log.trace('sessionId: %s', sessionId);
+      console.log("[getSessionID]:[1]> sessionID:", sessionId);
 
       if (sessionId) {
         return done(null, {
@@ -133,6 +142,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
         uidgen(
           18,
           function (err, sessionId) {
+            console.log("[getSessionID]:[3]> sessionID:", !err, sessionId);
             if (err) {
               req.log.trace('could not store session with invalid id');
               done(err);
@@ -150,6 +160,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
           }.bind(this)
         );
       } else {
+        console.log("[getSessionID]:[4]> sessionID:", cached.item);
         done(null, {
           id: cached.item,
           enc: sign(cached.item, opts.secretKey),
@@ -165,6 +176,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
       function (err, session) {
         if (err || !session) {
           req.session = getSession();
+          console.error('[getSessionID]> Error:', !session, err);
         } else {
           this.cache.get(session.id, (err, cached) => {
             if (err) {
@@ -173,9 +185,9 @@ function plugin(fastify, options, pluginRegistrationDone) {
               req.session = getSession();
               setUserID.bind(this)(req, () => hookFinished(err));
             } else if (!cached) {
+              req.session = getSession(session);
               console.log('session data missing (new/expired)', req.session.id);
               req.log.trace('session data missing (new/expired)');
-              req.session = getSession(session);
               setUserID.bind(this)(req, hookFinished);
             } else {
               req.session = getSession(session, cached.item);
@@ -205,9 +217,8 @@ function plugin(fastify, options, pluginRegistrationDone) {
           } else {
             const cookieExiresMs = opts.cookie && opts.cookie.expires;
             const cookieOpts = merge({}, opts.cookie, {
-              expires: !cookieExiresMs
-                ? undefined
-                : new Date(Date.now() + cookieExiresMs),
+              expires: !cookieExiresMs ?
+                undefined : new Date(Date.now() + cookieExiresMs),
             });
             reply.setCookie(
               opts.sessionCookieName,
