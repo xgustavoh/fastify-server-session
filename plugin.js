@@ -168,15 +168,18 @@ function plugin(fastify, options, pluginRegistrationDone) {
         } else {
           this.cache.get(session.id, (err, cached) => {
             if (err) {
+              console.error('could not retrieve session data', err);
               req.log.trace('could not retrieve session data');
               req.session = getSession();
               setUserID.bind(this)(req, () => hookFinished(err));
             } else if (!cached) {
+              console.log('session data missing (new/expired)', req.session.id);
               req.log.trace('session data missing (new/expired)');
               req.session = getSession(session);
               setUserID.bind(this)(req, hookFinished);
             } else {
               req.session = getSession(session, cached.item);
+              console.log('session restored:', req.session.id);
               req.log.trace('session restored: %j', req.session);
               setUserID.bind(this)(req, hookFinished);
             }
@@ -196,6 +199,7 @@ function plugin(fastify, options, pluginRegistrationDone) {
         opts.sessionMaxAge,
         (err) => {
           if (err) {
+            console.log('error saving session:', err.message);
             req.log.trace('error saving session: %s', err.message);
             hookFinished(err);
           } else {
