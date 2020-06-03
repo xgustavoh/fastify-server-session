@@ -1,9 +1,14 @@
 'use strict';
 
 const fp = require('fastify-plugin');
-const { sign, unsign } = require('cookie-signature');
+const {
+  sign,
+  unsign
+} = require('cookie-signature');
 const uidgen = require('uid-safe');
-const { v4: uuidv4 } = require('uuid');
+const {
+  v4: uuidv4
+} = require('uuid');
 const merge = require('merge-options');
 const MAX_AGE = 2100000; // 30 minutes
 const MAX_AGE_USER = 1296000000; // 15 Dias
@@ -21,7 +26,9 @@ const defaultOptions = {
   userMaxAge: MAX_AGE_USER,
 };
 const getSession = require('./lib/session');
-const { symbols: syms } = getSession;
+const {
+  symbols: syms
+} = getSession;
 
 function plugin(fastify, options, pluginRegistrationDone) {
   const _options = Function.prototype.isPrototypeOf(options) ? {} : options;
@@ -109,12 +116,12 @@ function plugin(fastify, options, pluginRegistrationDone) {
       return done();
     }
 
-    const userKey = `ht-user:${getIP(request)}:${getUserAgent(request)}`;
+    const userKey = `ht-user:${getHash(request)}`;
     this.cache.get(userKey, (err, cached) => {
       const userID =
-        err || !cached || typeof cached.item !== 'string'
-          ? uuidv4()
-          : cached.item;
+        err || !cached || typeof cached.item !== 'string' ?
+        uuidv4() :
+        cached.item;
 
       request.userID = userID;
       request.session[syms.kUserID] = userID;
@@ -168,8 +175,6 @@ function plugin(fastify, options, pluginRegistrationDone) {
     }
 
     const keySession = `ht-session:${getHash(req)}`;
-
-    console.info(`[keySession]> ${keySession}`);
     this.cache.get(keySession, (err, cached) => {
       if (err || !cached) {
         uidgen(
@@ -252,9 +257,8 @@ function plugin(fastify, options, pluginRegistrationDone) {
           } else {
             const cookieExiresMs = opts.cookie && opts.cookie.expires;
             const cookieOpts = merge({}, opts.cookie, {
-              expires: !cookieExiresMs
-                ? undefined
-                : new Date(Date.now() + cookieExiresMs),
+              expires: !cookieExiresMs ?
+                undefined : new Date(Date.now() + cookieExiresMs),
             });
             reply.setCookie(
               opts.sessionCookieName,
