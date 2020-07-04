@@ -1,14 +1,9 @@
 'use strict';
 
 const fp = require('fastify-plugin');
-const {
-  sign,
-  unsign
-} = require('cookie-signature');
+const { sign, unsign } = require('cookie-signature');
 const uidgen = require('uid-safe');
-const {
-  v4: uuidv4
-} = require('uuid');
+const { v4: uuidv4 } = require('uuid');
 const merge = require('merge-options');
 const MAX_AGE = 2100000; // 30 minutes
 const MAX_AGE_USER = 1296000000; // 15 Dias
@@ -26,9 +21,7 @@ const defaultOptions = {
   userMaxAge: MAX_AGE_USER,
 };
 const getSession = require('./lib/session');
-const {
-  symbols: syms
-} = getSession;
+const { symbols: syms } = getSession;
 
 function plugin(fastify, options, pluginRegistrationDone) {
   const _options = Function.prototype.isPrototypeOf(options) ? {} : options;
@@ -51,12 +44,16 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   function getIP(request) {
     let forwarded = request.ip;
-    if (request.headers['cf-connecting-ip']) {
-      forwarded = request.headers['cf-connecting-ip'];
-    } else if (request.headers['x-forwarded-for']) {
-      forwarded = request.headers['x-forwarded-for'];
-    } else if (Array.isArray(request.ips) && request.ips.length > 0) {
-      [forwarded] = request.ips;
+    try {
+      if ('cf-connecting-ip' in request.headers) {
+        forwarded = request.headers['cf-connecting-ip'];
+      } else if ('x-forwarded-for' in request.headers) {
+        forwarded = request.headers['x-forwarded-for'];
+      } else if (Array.isArray(request.ips) && request.ips.length > 0) {
+        [forwarded] = request.ips;
+      }
+    } catch (error) {
+      console.warn(error);
     }
 
     if (forwarded.indexOf(',') >= 0) {
@@ -68,10 +65,12 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   function getUserAgent(request) {
     try {
-      return new Buffer(request.headers['user-agent']).toString('base64');
+      return new Buffer(
+        request.headers['user-agent'] || 'Hunter.FM Ad Server'
+      ).toString('base64');
     } catch (error) {
-      console.error(error);
-      return 'unk';
+      console.warn(error);
+      return 'Hunter.FM Ad Server';
     }
   }
 
@@ -85,29 +84,6 @@ function plugin(fastify, options, pluginRegistrationDone) {
     }
 
     return `${getIP(request)}:${getUserAgent(request)}`;
-    /*
-    35|ad-proxy-hls  | 2020-06-02T19:31:58: session data missing (new/expired) xMD0dQ6mi0Cp_tNzo1Ga58PY xMD0dQ6mi0Cp_tNzo1Ga58PY {
-    35|ad-proxy-hls  |   'x-security': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjb20uaHVudGVyIiwiY3JlYXRlIjp7fSwiZGV2aWNlIjoiM2QwYWExN2I2Yjk4ZTcxZSIsInZlcnNpb24iOiIyLjUuMiJ9.tnUXTxqUXhUdroJjavaWtTtN4Te12asOKHuAg3d5bUQ',
-    35|ad-proxy-hls  |   'user-agent': 'HunterFM/2.5.2 (Linux; Android 10; SCG01 Build/QP1A.190711.020; wv)',
-    35|ad-proxy-hls  |   'accept-encoding': 'gzip',
-    35|ad-proxy-hls  |   host: 'hls.hunter.fm',
-    35|ad-proxy-hls  |   'x-forwarded-for': '180.197.37.116'
-    35|ad-proxy-hls  | } [Object: null prototype] {}
-    35|ad-proxy-hls  | 2020-06-02T19:32:10: [getSessionID]:[3]> sessionID: true AtKd4yOBYvxGU2PdYOXSALcw
-    35|ad-proxy-hls  | 2020-06-02T19:32:10: session data missing (new/expired) AtKd4yOBYvxGU2PdYOXSALcw AtKd4yOBYvxGU2PdYOXSALcw {
-    35|ad-proxy-hls  |   host: 'hls.hunter.fm',
-    35|ad-proxy-hls  |   'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36 OPR/68.0.3618.142',
-    35|ad-proxy-hls  |   origin: 'https://hunter.fm',
-    35|ad-proxy-hls  |   'sec-fetch-site': 'same-site',
-    35|ad-proxy-hls  |   'sec-fetch-mode': 'cors',
-    35|ad-proxy-hls  |   'sec-fetch-dest': 'empty',
-    35|ad-proxy-hls  |   referer: 'https://hunter.fm/pop/',
-    35|ad-proxy-hls  |   'accept-encoding': 'gzip, deflate, br',
-    35|ad-proxy-hls  |   'accept-language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-    35|ad-proxy-hls  |   cookie: '__cfduid=d059482cdaa443509625cce64d1e1cbba1590266496; _ga=GA1.2.2084737558.1590266497; __gads=ID=0ddc2d9ccd08257a:T=1590266498:S=ALNI_MZAHEdaa75l_Xrar5BibHpjVEnKhg; _gid=GA1.2.952987560.1591137117; _gat=1',
-    35|ad-proxy-hls  |   'x-forwarded-for': '177.182.188.196'
-    35|ad-proxy-hls  | } 
-    */
   }
 
   function setUserID(request, done) {
@@ -119,9 +95,9 @@ function plugin(fastify, options, pluginRegistrationDone) {
     const userKey = `ht-user:${getHash(request)}`;
     this.cache.get(userKey, (err, cached) => {
       const userID =
-        err || !cached || typeof cached.item !== 'string' ?
-        uuidv4() :
-        cached.item;
+        err || !cached || typeof cached.item !== 'string'
+          ? uuidv4()
+          : cached.item;
 
       request.userID = userID;
       request.session[syms.kUserID] = userID;
@@ -257,8 +233,9 @@ function plugin(fastify, options, pluginRegistrationDone) {
           } else {
             const cookieExiresMs = opts.cookie && opts.cookie.expires;
             const cookieOpts = merge({}, opts.cookie, {
-              expires: !cookieExiresMs ?
-                undefined : new Date(Date.now() + cookieExiresMs),
+              expires: !cookieExiresMs
+                ? undefined
+                : new Date(Date.now() + cookieExiresMs),
             });
             reply.setCookie(
               opts.sessionCookieName,
