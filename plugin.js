@@ -5,7 +5,7 @@ const { sign, unsign } = require('cookie-signature');
 const uidgen = require('uid-safe');
 const { v4: uuidv4 } = require('uuid');
 const merge = require('merge-options');
-const MAX_AGE = 2100000; // 30 minutes
+const MAX_AGE = 1800000; // 30 minutes
 const MAX_AGE_USER = 1296000000; // 15 Dias
 const defaultOptions = {
   cookie: {
@@ -44,16 +44,12 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   function getIP(request) {
     let forwarded = request.ip;
-    try {
-      if ('cf-connecting-ip' in request.headers) {
-        forwarded = request.headers['cf-connecting-ip'];
-      } else if ('x-forwarded-for' in request.headers) {
-        forwarded = request.headers['x-forwarded-for'];
-      } else if (Array.isArray(request.ips) && request.ips.length > 0) {
-        [forwarded] = request.ips;
-      }
-    } catch (error) {
-      console.warn(error);
+    if (request.headers['cf-connecting-ip']) {
+      forwarded = request.headers['cf-connecting-ip'];
+    } else if (request.headers['x-forwarded-for']) {
+      forwarded = request.headers['x-forwarded-for'];
+    } else if (Array.isArray(request.ips) && request.ips.length > 0) {
+      [forwarded] = request.ips;
     }
 
     if (forwarded.indexOf(',') >= 0) {
@@ -64,45 +60,25 @@ function plugin(fastify, options, pluginRegistrationDone) {
   }
 
   function getUserAgent(request) {
-    try {
-      return new Buffer(
-        request.headers['user-agent'] || 'Hunter.FM Ad Server'
-      ).toString('base64');
-    } catch (error) {
-      console.warn(error);
-      return 'Hunter.FM Ad Server';
-    }
+    return encodeURIComponent(request.headers['user-agent']);
   }
 
-  function getHash(request) {
-    if (request.cookies['_gid']) {
-      return `GAID:${request.cookies['_gid']}`;
+  function getStation(request) {
+    const info = (request.req.url || '').split('/');
+    for (let i = 0; i < info.length; i += 1) {
+      if (info[i] !== '') {
+        return info[i].replace('.m3u8', '').trim();
+      }
     }
-
-    if (request.cookies['__cfduid']) {
-      return `CF:${request.cookies['__cfduid']}`;
-    }
-
-    return `${getIP(request)}:${getUserAgent(request)}`;
+    return 'unk';
   }
 
-  function setUserID(request, done) {
-    if (request.session[syms.kUserID] !== 'unk') {
-      request.userID = request.session[syms.kUserID];
-      return done();
-    }
-
-    const userKey = `ht-user:${getHash(request)}`;
+  function getUserID(request, done) {
+    const userKey = `ht-user:${getIP(request)}:${getUserAgent(request)}`;
     this.cache.get(userKey, (err, cached) => {
-      const userID =
-        err || !cached || typeof cached.item !== 'string'
-          ? uuidv4()
-          : cached.item;
-
-      request.userID = userID;
-      request.session[syms.kUserID] = userID;
-      this.cache.set(userKey, userID, opts.userMaxAge, () => {
-        done();
+      let userID = err || !cached ? cached : uuidv4();
+      this.cache.set(userKey, userID, opts.userMaxAge, (err) => {
+        done({ userID });
       });
     });
   }
@@ -120,18 +96,12 @@ function plugin(fastify, options, pluginRegistrationDone) {
           id: sessionId,
           enc: req.cookies[opts.sessionCookieName],
         });
-      } else {
-        console.error(
-          '[getSessionID]:[0]> sessionID:',
-          request.headers['user-agent'],
-          req.cookies[opts.sessionCookieName]
-        );
       }
     }
 
     if (req.query[opts.sessionCookieName]) {
       const sessionId = unsign(
-        req.query[opts.sessionCookieName].replace(/ /g, '+'),
+        req.query[opts.sessionCookieName],
         opts.secretKey
       );
       req.log.trace('sessionId: %s', sessionId);
@@ -141,22 +111,15 @@ function plugin(fastify, options, pluginRegistrationDone) {
           id: sessionId,
           enc: req.query[opts.sessionCookieName],
         });
-      } else {
-        console.error(
-          '[getSessionID]:[1]> sessionID:',
-          request.headers['user-agent'],
-          req.query[opts.sessionCookieName]
-        );
       }
     }
 
-    const keySession = `ht-session:${getHash(req)}`;
+    const keySession = `ht-session:${req.userID}:${getStation(req)}`;
     this.cache.get(keySession, (err, cached) => {
       if (err || !cached) {
         uidgen(
           18,
           function (err, sessionId) {
-            console.log('[getSessionID]:[3]> sessionID:', !err, sessionId);
             if (err) {
               req.log.trace('could not store session with invalid id');
               done(err);
@@ -164,12 +127,17 @@ function plugin(fastify, options, pluginRegistrationDone) {
               req.log.trace('could not store session with missing id');
               done(Error('missing session id'));
             } else {
-              this.cache.set(keySession, sessionId, opts.sessionMaxAge, () => {
-                done(null, {
-                  id: sessionId,
-                  enc: sign(sessionId, opts.secretKey),
-                });
-              });
+              this.cache.set(
+                keySession,
+                sessionId,
+                opts.sessionMaxAge,
+                (err) => {
+                  done(null, {
+                    id: sessionId,
+                    enc: sign(sessionId, opts.secretKey),
+                  });
+                }
+              );
             }
           }.bind(this)
         );
@@ -184,37 +152,32 @@ function plugin(fastify, options, pluginRegistrationDone) {
 
   fastify.decorateRequest('session', getSession());
   fastify.addHook('onRequest', function (req, reply, hookFinished) {
-    getSessionID.bind(this)(
-      req,
-      function (err, session) {
-        if (err || !session) {
-          req.session = getSession();
-          console.error('[getSessionID]> Error:', !session, err);
-        } else {
-          this.cache.get(session.id, (err, cached) => {
-            if (err) {
-              console.error('could not retrieve session data', err);
-              req.log.trace('could not retrieve session data');
-              req.session = getSession();
-              setUserID.bind(this)(req, () => hookFinished(err));
-            } else if (!cached) {
-              req.session = getSession(session);
-              console.error(
-                'session data missing (new/expired)',
-                session.id,
-                req.session[syms.kSessionID]
-              );
-              req.log.trace('session data missing (new/expired)');
-              setUserID.bind(this)(req, hookFinished);
-            } else {
-              req.session = getSession(session, cached.item);
-              req.log.trace('session restored: %j', req.session);
-              setUserID.bind(this)(req, hookFinished);
-            }
-          });
-        }
-      }.bind(this)
-    );
+    getUserID.bind(this)(req, (userID) => {
+      req.userID = userID;
+      getSessionID.bind(this)(
+        req,
+        function (err, session) {
+          if (err || !session) {
+            req.session = getSession();
+          } else {
+            this.cache.get(session.id, (err, cached) => {
+              if (err) {
+                req.log.trace('could not retrieve session data');
+                hookFinished(err);
+              } else if (!cached) {
+                req.log.trace('session data missing (new/expired)');
+                req.session = getSession(session);
+                hookFinished();
+              } else {
+                req.session = getSession(session, cached.item);
+                req.log.trace('session restored: %j', req.session);
+                hookFinished();
+              }
+            });
+          }
+        }.bind(this)
+      );
+    });
   });
 
   fastify.addHook('onSend', function (req, reply, payload, hookFinished) {
@@ -227,7 +190,6 @@ function plugin(fastify, options, pluginRegistrationDone) {
         opts.sessionMaxAge,
         (err) => {
           if (err) {
-            console.error('error saving session:', err.message);
             req.log.trace('error saving session: %s', err.message);
             hookFinished(err);
           } else {
